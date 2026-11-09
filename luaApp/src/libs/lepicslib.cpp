@@ -11,17 +11,6 @@
 #include <epicsExport.h>
 #include "lepicslib.h"
 
-#include <pvxs/client.h>
-#include <iostream>
-
-static pvxs::client::Context g_pva_context;
-
-static void ensure_pva_context() {
-    if (!g_pva_context) {
-        g_pva_context = pvxs::client::Context::fromEnv();
-    }
-}
-
 /*
  * CA context management -- a single, process-wide preemptive context.
  *
@@ -487,54 +476,6 @@ static int db_put(lua_State* L, DBADDR* paddr, int val_index)
 	}
 
 	return 0;
-}
-
-static int epics_pvget(lua_State* state, const char* pv_name, const char* field, double timeout, int max_count, int as_string) {
-
-    int result = 0;
-
-    ensure_pva_context();
-
-    // TODO: make field default to "value"?
-    auto value = g_pva_context.get(pv_name).exec()->wait(timeout);
-    auto type = value[field].type();
-
-    if (type == pvxs::TypeCode::Float64
-        || type == pvxs::TypeCode::Float32
-        || type == pvxs::TypeCode::Int8
-        || type == pvxs::TypeCode::Int16
-        || type == pvxs::TypeCode::Int32
-        || type == pvxs::TypeCode::UInt8
-        || type == pvxs::TypeCode::UInt16
-        || type == pvxs::TypeCode::UInt32) {
-
-        try {
-            double value_double = value[field].as<double>();
-            lua_pushnumber(state, value_double);
-            result = 1;
-        } catch (...) {
-            result = 0;
-        }
-    } else if (type == pvxs::TypeCode::String) {
-        try {
-            std::string value_string = value[field].as<std::string>();
-            lua_pushstring(state, value_string.c_str());
-            result = 1;
-        } catch (...) {
-            result = 0;
-        }
-    }
-    else {
-        std::cout << "unsupprted type: " << type << std::endl;
-    }
-
-    if (result == 0) {
-        lua_pushnil(state);
-        lua_pushfstring(state, "Failed to read '%s'", pv_name);
-        return 2;
-    }
-
-    return result;
 }
 
 /*
@@ -1015,42 +956,6 @@ static int epics_put(lua_State* state, const char* pv_name, int offset, double t
 	return 0;
 }
 
-static int l_pvget(lua_State* state)
-{
-	const char* pv_name = luaL_checkstring(state, 1);
-    const char* pva_field = "value";
-	double timeout = 1.0;
-	int max_count = 0;
-	int as_string = -1;
-
-	if (lua_isnumber(state, 2))
-	{
-		/* Old-style: epics.get("pv", timeout) */
-		timeout = lua_tonumber(state, 2);
-	}
-	else if (lua_istable(state, 2))
-	{
-		/* New-style: epics.get("pv", {timeout=5, count=100, string=true}) */
-		lua_getfield(state, 2, "timeout");
-		if (!lua_isnil(state, -1))    { timeout = lua_tonumber(state, -1); }
-		lua_pop(state, 1);
-
-		lua_getfield(state, 2, "count");
-		if (!lua_isnil(state, -1))    { max_count = (int) lua_tointeger(state, -1); }
-		lua_pop(state, 1);
-
-		lua_getfield(state, 2, "string");
-		if (!lua_isnil(state, -1))    { as_string = lua_toboolean(state, -1); }
-		lua_pop(state, 1);
-
-		lua_getfield(state, 2, "field");
-		if (!lua_isnil(state, -1))    { pva_field = lua_tostring(state, -1); }
-		lua_pop(state, 1);
-	}
-
-	return epics_pvget(state, pv_name, pva_field, timeout, max_count, as_string);
-}
-
 static int l_caget(lua_State* state)
 {
 	const char* pv_name = luaL_checkstring(state, 1);
@@ -1280,6 +1185,120 @@ static int l_createpv(lua_State* state)
 }
 
 
+// PVA support is optional
+#ifdef PVXS
+#include <pvxs/client.h>
+
+static pvxs::client::Context g_pva_context;
+
+static void ensure_pva_context() {
+    if (!g_pva_context) {
+        g_pva_context = pvxs::client::Context::fromEnv();
+    }
+}
+
+static int epics_pvget(lua_State* state, const char* pv_name, const char* field, double timeout, int max_count, int as_string) {
+
+    int result = 0;
+
+    ensure_pva_context();
+
+    // use "value" field if no field is given
+    if (!field) {
+        field = "value";
+    }
+
+    auto value = g_pva_context.get(pv_name).exec()->wait(timeout);
+    auto type = value[field].type();
+
+    if (type == pvxs::TypeCode::Float64
+        || type == pvxs::TypeCode::Float32
+        || type == pvxs::TypeCode::Int8
+        || type == pvxs::TypeCode::Int16
+        || type == pvxs::TypeCode::Int32
+        || type == pvxs::TypeCode::UInt8
+        || type == pvxs::TypeCode::UInt16
+        || type == pvxs::TypeCode::UInt32) {
+
+        // Any numeric type will get pushed to a lua number
+        try {
+            double value_double = value[field].as<double>();
+            lua_pushnumber(state, value_double);
+            result = 1;
+        } catch (...) {
+            result = 0;
+        }
+    } else if (type == pvxs::TypeCode::String) {
+        try {
+            std::string value_string = value[field].as<std::string>();
+            lua_pushstring(state, value_string.c_str());
+            result = 1;
+        } catch (...) {
+            result = 0;
+        }
+    } else if (type == pvxs::TypeCode::Bool) {
+        try {
+            bool value_bool = value[field].as<bool>();
+            lua_pushboolean(state, value_bool);
+            result = 1;
+        } catch (...) {
+            result = 0;
+        }
+    } else {
+        lua_pushnil(state);
+        lua_pushfstring(state, "type of PV '%s' is unsupported for pvget", pv_name);
+        return 2;
+    }
+
+    if (result == 0) {
+        lua_pushnil(state);
+        lua_pushfstring(state, "Failed to read '%s'", pv_name);
+        return 2;
+    }
+
+    return result;
+}
+
+static int l_pvget(lua_State* state)
+{
+	const char* pv_name = luaL_checkstring(state, 1);
+    const char* pva_field = "value";
+	double timeout = 1.0;
+	int max_count = 0;
+	int as_string = -1;
+
+	if (lua_isnumber(state, 2))
+	{
+		/* Old-style: epics.get("pv", timeout) */
+		timeout = lua_tonumber(state, 2);
+	}
+	else if (lua_istable(state, 2))
+	{
+		/* New-style: epics.get("pv", {timeout=5, count=100, string=true}) */
+		lua_getfield(state, 2, "timeout");
+		if (!lua_isnil(state, -1))    { timeout = lua_tonumber(state, -1); }
+		lua_pop(state, 1);
+
+		lua_getfield(state, 2, "count");
+		if (!lua_isnil(state, -1))    { max_count = (int) lua_tointeger(state, -1); }
+		lua_pop(state, 1);
+
+		lua_getfield(state, 2, "string");
+		if (!lua_isnil(state, -1))    { as_string = lua_toboolean(state, -1); }
+		lua_pop(state, 1);
+
+		lua_getfield(state, 2, "field");
+		if (!lua_isnil(state, -1))    { pva_field = lua_tostring(state, -1); }
+		lua_pop(state, 1);
+	}
+
+	return epics_pvget(state, pv_name, pva_field, timeout, max_count, as_string);
+}
+
+
+#endif
+
+
 int luaopen_epics (lua_State *L)
 {
 	/* Register the lua_pv metatable */
@@ -1309,9 +1328,12 @@ int luaopen_epics (lua_State *L)
 
 	static const luaL_Reg mylib[] = {
 		{"get",   l_caget},
-		{"pvget",  l_pvget},
 		{"put",   l_caput},
 		{"pv",    l_createpv},
+        #ifdef PVXS
+		{"pvget",  l_pvget},
+		// {"pvput",  l_pvput},
+        #endif
 		{NULL, NULL}
 	};
 

@@ -16,6 +16,11 @@ $(PROD_NAME)_SRCS += $(PROD_NAME)_registerRecordDeviceDriver.cpp
 $(PROD_NAME)_SRCS_DEFAULT += $(PROD_NAME)Main.cpp
 $(PROD_NAME)_SRCS_vxWorks += -nil-
 
+ifdef PVXS
+  $(PROD_NAME)_DBD += pvxsIoc.dbd
+  $(PROD_NAME)_LIBS := pvxsIoc pvxs $($(PROD_NAME)_LIBS)
+endif
+
 $(PROD_NAME)_LIBS += $(LUA_IOC_LIBS)
 $(PROD_NAME)_LIBS += asyn
 $(PROD_NAME)_LIBS += $(EPICS_BASE_IOC_LIBS)
