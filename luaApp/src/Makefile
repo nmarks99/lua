@@ -142,6 +142,8 @@ LIB_INSTALLS += ../lpeg/re.lua
 LIB_INSTALLS += ../libs/bytestream.lua
 LIB_INSTALLS += ../libs/seq.lua
 
+
+lua_LIBS += pvxs
 lua_LIBS += asyn
 lua_LIBS += $(EPICS_BASE_IOC_LIBS)
 
