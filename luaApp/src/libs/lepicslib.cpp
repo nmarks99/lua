@@ -1197,6 +1197,11 @@ static void ensure_pva_context() {
     }
 }
 
+static int epics_pvput(lua_State* state, const char* pv_name, const char* field, int offset, double timeout) {
+    lua_pushfstring(state, "epics_pvput not implemented", pv_name);
+    return 1;
+}
+
 static int epics_pvget(lua_State* state, const char* pv_name, const char* field, double timeout, int max_count, int as_string) {
 
     int result = 0;
@@ -1259,8 +1264,7 @@ static int epics_pvget(lua_State* state, const char* pv_name, const char* field,
     return result;
 }
 
-static int l_pvget(lua_State* state)
-{
+static int l_pvget(lua_State* state) {
 	const char* pv_name = luaL_checkstring(state, 1);
     const char* pva_field = "value";
 	double timeout = 1.0;
@@ -1293,6 +1297,32 @@ static int l_pvget(lua_State* state)
 	}
 
 	return epics_pvget(state, pv_name, pva_field, timeout, max_count, as_string);
+}
+
+static int l_pvput(lua_State* state)
+{
+	const char* pv_name = luaL_checkstring(state, 1);
+    const char* pva_field = "value";
+	double timeout = 1.0;
+
+	if (lua_isnumber(state, 3))
+	{
+		/* Old-style: epics.put("pv", value, timeout) */
+		timeout = lua_tonumber(state, 3);
+	}
+	else if (lua_istable(state, 3))
+	{
+		/* New-style: epics.put("pv", value, {timeout=5}) */
+		lua_getfield(state, 3, "timeout");
+		if (!lua_isnil(state, -1))    { timeout = lua_tonumber(state, -1); }
+		lua_pop(state, 1);
+
+		lua_getfield(state, 2, "field");
+		if (!lua_isnil(state, -1))    { pva_field = lua_tostring(state, -1); }
+		lua_pop(state, 1);
+	}
+
+	return epics_pvput(state, pv_name, pva_field, 2, timeout);
 }
 
 
@@ -1332,7 +1362,7 @@ int luaopen_epics (lua_State *L)
 		{"pv",    l_createpv},
         #ifdef PVXS
 		{"pvget",  l_pvget},
-		// {"pvput",  l_pvput},
+        {"pvput",  l_pvput},
         #endif
 		{NULL, NULL}
 	};

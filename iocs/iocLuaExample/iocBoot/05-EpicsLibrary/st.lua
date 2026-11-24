@@ -101,6 +101,16 @@ pv.VAL
 -- Expected: 100.0
 pv:get("VAL")
 
+
+--
+--
+-- === PVA ===
+if PVXS_SERVER_PORT ~= nil then
+    print(epics.pvget("lua:ai"))
+    print(epics.pvget("lua:ai", {field="display.precision"}))
+end
+
+
 --
 --
 -- === Error Handling ===
